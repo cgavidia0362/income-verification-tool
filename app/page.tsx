@@ -275,47 +275,71 @@ export default function Home() {
               </div>
 
               {/* Combined Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Income (All Files)</h3>
-                  <div className="text-4xl font-bold mb-2">
-                    ${combinedTotals.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-sm opacity-80">{results.length} statement{results.length > 1 ? 's' : ''} analyzed</div>
-                </div>
+<div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Income (All Files)</h3>
+    <div className="text-4xl font-bold mb-2">
+      ${combinedTotals.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+    </div>
+    <div className="text-sm opacity-80">{results.length} statement{results.length > 1 ? 's' : ''} analyzed</div>
+  </div>
 
-                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Transactions</h3>
-                  <div className="text-4xl font-bold mb-2">{combinedTotals.totalTransactions}</div>
-                  <div className="text-sm opacity-80">All income sources identified</div>
-                </div>
+  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Average Monthly Income</h3>
+    <div className="text-4xl font-bold mb-2">
+      ${(() => {
+        const totalMonths = results.reduce((acc, result) => {
+          return acc + (result.data?.months?.length || 0);
+        }, 0);
+        const avgIncome = totalMonths > 0 ? combinedTotals.totalIncome / totalMonths : 0;
+        return avgIncome.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      })()}
+    </div>
+    <div className="text-sm opacity-80">
+      {(() => {
+        const totalMonths = results.reduce((acc, result) => {
+          return acc + (result.data?.months?.length || 0);
+        }, 0);
+        return `Across ${totalMonths} month${totalMonths !== 1 ? 's' : ''}`;
+      })()}
+    </div>
+  </div>
 
-                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Files Processed</h3>
-                  <div className="text-4xl font-bold mb-2">{results.length}</div>
-                  <div className="text-sm opacity-80">
-                    {results.filter(r => r.data).length} successful, {results.filter(r => r.error).length} failed
-                  </div>
-                </div>
-              </div>
+  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Transactions</h3>
+    <div className="text-4xl font-bold mb-2">{combinedTotals.totalTransactions}</div>
+    <div className="text-sm opacity-80">All income sources identified</div>
+  </div>
+
+  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Files Processed</h3>
+    <div className="text-4xl font-bold mb-2">{results.length}</div>
+    <div className="text-sm opacity-80">
+      {results.filter(r => r.data).length} successful, {results.filter(r => r.error).length} failed
+    </div>
+  </div>
+</div>
 
               {/* Individual File Results */}
               {results.map((result, resultIdx) => (
                 <div key={resultIdx} className="mb-10">
                   <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-6 rounded-t-2xl">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <span className="text-3xl">📄</span>
-                        <div>
-                          <h3 className="text-2xl font-bold">{result.fileName}</h3>
-                          {result.data && (
-                            <p className="text-sm opacity-90">
-                              Total: ${result.data.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })} | 
-                              Transactions: {result.data.totalTransactions}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                    <div className="flex items-center gap-4">
+  <span className="text-3xl">📄</span>
+  <div>
+    <h3 className="text-2xl font-bold">{result.fileName}</h3>
+    {result.data && (
+      <p className="text-sm opacity-90">
+        {result.data.accountNumber && result.data.accountNumber !== 'N/A' && (
+          <span className="font-semibold">Account: ****{result.data.accountNumber} | </span>
+        )}
+        Total: ${result.data.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })} | 
+        Transactions: {result.data.totalTransactions}
+      </p>
+    )}
+  </div>
+</div>
                       {result.error && (
                         <span className="bg-red-500 text-white px-4 py-2 rounded-full text-sm font-semibold">
                           Error

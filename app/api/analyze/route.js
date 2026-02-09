@@ -25,7 +25,9 @@ export async function POST(request) {
     // Create the prompt
     const prompt = `You are a financial analyst AI specialized in extracting income data from bank statements, credit card statements, and other financial documents.
 
-Analyze this document and extract ALL income transactions (money coming INTO the account). 
+    FIRST, find the bank account number on the statement and extract ONLY THE LAST 4 DIGITS.
+
+    THEN, analyze this document and extract ALL income transactions (money coming INTO the account).
 
 For EACH income transaction, identify:
 1. **Date** - The exact date of the transaction
@@ -45,9 +47,11 @@ CRITICAL RULES:
 
 Return your response as a valid JSON object with this EXACT structure:
 {
-  "totalIncome": 0.00,
-  "totalTransactions": 0,
-  "months": [
+  {
+    "accountNumber": "Last 4 digits of account number only (or 'N/A' if not found)",
+    "totalIncome": 0.00,
+    "totalTransactions": 0,
+    "months": [
     {
       "month": "January 2024",
       "total": 0.00,
