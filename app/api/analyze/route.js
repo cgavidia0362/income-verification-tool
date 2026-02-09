@@ -15,7 +15,7 @@ export async function POST(request) {
     // Initialize Gemini
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ 
-      model: 'models/gemini-pro-vision'
+      model: 'models/gemini-1.0-pro-vision-latest'
     });
 
     // Prepare the file for Gemini
