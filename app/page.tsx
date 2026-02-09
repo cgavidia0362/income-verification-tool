@@ -18,7 +18,7 @@ export default function Home() {
 
   const handleFileSelect = (files: FileList) => {
     const fileArray = Array.from(files);
-    setSelectedFiles(fileArray);
+    setSelectedFiles(prev => [...prev, ...fileArray]); // ADD instead of REPLACE
     setError(null);
   };
 
