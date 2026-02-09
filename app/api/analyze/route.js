@@ -74,7 +74,7 @@ Return your response as a valid JSON object with this EXACT structure:
 IMPORTANT: Return ONLY the JSON object, no other text.`;
 
     // Call Gemini API directly using v1 endpoint
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
