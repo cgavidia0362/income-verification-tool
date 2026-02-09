@@ -12,10 +12,17 @@ export async function POST(request) {
       );
     }
 
-    // Initialize Gemini
+    // Initialize Gemini with v1 API (not beta)
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    
+    // Use gemini-1.5-flash which is available on free tier
     const model = genAI.getGenerativeModel({ 
-      model: 'models/gemini-1.0-pro-vision-latest'
+      model: 'gemini-1.5-flash',
+      generationConfig: {
+        temperature: 0.1,
+        topK: 1,
+        topP: 1,
+      }
     });
 
     // Prepare the file for Gemini
