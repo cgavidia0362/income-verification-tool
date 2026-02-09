@@ -16,22 +16,36 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<string>('');
 
-  const handleFileSelect = (files: FileList) => {
+  const handleFileSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    
     const fileArray = Array.from(files);
-    setSelectedFiles(prev => [...prev, ...fileArray]); // ADD instead of REPLACE
+    console.log(`Selected ${fileArray.length} files:`, fileArray.map(f => f.name)); // Debug log
+    
+    setSelectedFiles(prev => {
+      // Prevent duplicates by checking file names
+      const existingNames = prev.map(f => f.name);
+      const newFiles = fileArray.filter(f => !existingNames.includes(f.name));
+      return [...prev, ...newFiles];
+    });
     setError(null);
   };
-
+  
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
+    
     const files = e.dataTransfer.files;
-    if (files.length > 0) {
+    console.log(`Dropped ${files.length} files`); // Debug log
+    
+    if (files && files.length > 0) {
       handleFileSelect(files);
     }
   };
-
+  
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
   };
 
   const processFiles = async () => {
@@ -184,7 +198,11 @@ export default function Home() {
                   className="hidden"
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                   multiple
-                  onChange={(e) => e.target.files && e.target.files.length > 0 && handleFileSelect(e.target.files)}
+                  onChange={(e) => {
+                    console.log('File input changed:', e.target.files?.length, 'files');
+                    handleFileSelect(e.target.files);
+                    e.target.value = ''; // Reset input so same file can be selected again
+                  }}
                 />
               </div>
 
