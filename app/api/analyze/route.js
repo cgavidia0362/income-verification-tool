@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextResponse } from 'next/server';
 
 export async function POST(request) {
@@ -12,36 +11,16 @@ export async function POST(request) {
       );
     }
 
-    // Initialize Gemini with v1 API (not beta)
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    
-    // Use gemini-1.5-flash which is available on free tier
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
-      generationConfig: {
-        temperature: 0.1,
-        topK: 1,
-        topP: 1,
-      }
-    });
-
-    // Prepare the file for Gemini
+    // Prepare the file
     const base64Data = fileData.split(',')[1] || fileData;
     
-    // Determine mime type from file extension
+    // Determine mime type
     let mimeType = 'application/pdf';
     if (fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')) {
       mimeType = 'image/jpeg';
     } else if (fileName.toLowerCase().endsWith('.png')) {
       mimeType = 'image/png';
     }
-
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: mimeType,
-      },
-    };
 
     // Create the prompt
     const prompt = `You are a financial analyst AI specialized in extracting income data from bank statements, credit card statements, and other financial documents.
@@ -53,18 +32,16 @@ For EACH income transaction, identify:
 2. **Type** - Categorize as one of these: "ACH Deposit", "Wire Transfer", "Zelle Transfer", "Venmo", "Cash App", "PayPal", "Bank Deposit", "Check Deposit", "Mobile Deposit", "Direct Deposit", "Transfer In", or "Other"
 3. **Source** - The name of the person or company that sent the money (extract from description)
 4. **Amount** - The dollar amount (numbers only, no symbols)
-5. **Description** - The original transaction description from the statement
 
 Group transactions by MONTH and provide:
 - Monthly totals
-- Category breakdowns (how much from each transaction type per month)
+- Category breakdowns
 - Individual transaction details
 
 CRITICAL RULES:
-- ONLY include INCOMING money (deposits, credits, transfers IN)
-- EXCLUDE outgoing payments, withdrawals, debits, fees, purchases
-- If you see "CR" or "CREDIT" or positive amounts in a deposit column, those are income
-- Extract the source name from descriptions (e.g., "ACH DEPOSIT ACME CORP PAYROLL" → source is "ACME CORP")
+- ONLY include INCOMING money
+- EXCLUDE outgoing payments, withdrawals, debits, fees
+- Extract the source name from descriptions
 
 Return your response as a valid JSON object with this EXACT structure:
 {
@@ -75,8 +52,7 @@ Return your response as a valid JSON object with this EXACT structure:
       "month": "January 2024",
       "total": 0.00,
       "categories": {
-        "ACH Deposit": { "amount": 0.00, "count": 0 },
-        "Zelle Transfer": { "amount": 0.00, "count": 0 }
+        "ACH Deposit": { "amount": 0.00, "count": 0 }
       },
       "transactions": [
         {
@@ -84,19 +60,50 @@ Return your response as a valid JSON object with this EXACT structure:
           "type": "ACH Deposit",
           "source": "Company Name",
           "amount": 1000.00,
-          "description": "Original description from statement"
+          "description": "Original description"
         }
       ]
     }
   ]
 }
 
-IMPORTANT: Return ONLY the JSON object, no other text before or after.`;
+IMPORTANT: Return ONLY the JSON object, no other text.`;
 
-    // Call Gemini API
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    const text = response.text();
+    // Call Gemini API directly using v1 endpoint
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-pro-vision:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: base64Data
+              }
+            }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          topK: 1,
+          topP: 1,
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Gemini API error: ${JSON.stringify(errorData)}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates[0].content.parts[0].text;
 
     // Parse the JSON response
     let jsonText = text.trim();
