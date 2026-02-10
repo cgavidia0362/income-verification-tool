@@ -161,18 +161,6 @@ export default function Home() {
     return typeMap[type] || 'type-deposit';
   };
 
-  // Calculate combined totals
-  const combinedTotals = results.reduce(
-    (acc, result) => {
-      if (result.data) {
-        acc.totalIncome += result.data.totalIncome || 0;
-        acc.totalTransactions += result.data.totalTransactions || 0;
-      }
-      return acc;
-    },
-    { totalIncome: 0, totalTransactions: 0 }
-  );
-
   // Consolidate months across all files
   const consolidateMonths = (): ConsolidatedMonth[] => {
     const monthMap = new Map<string, ConsolidatedMonth>();
@@ -237,8 +225,15 @@ export default function Home() {
     });
   };
 
+  // Consolidate months first
   const consolidatedMonths = results.length > 0 ? consolidateMonths() : [];
   const totalConsolidatedMonths = consolidatedMonths.length;
+
+  // Calculate combined totals from consolidated months (not from original files)
+  const combinedTotals = {
+    totalIncome: consolidatedMonths.reduce((sum, month) => sum + month.total, 0),
+    totalTransactions: consolidatedMonths.reduce((sum, month) => sum + month.transactions.length, 0)
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-purple-900 p-5">
