@@ -34,7 +34,7 @@ export async function POST(request) {
       const endPage = Math.min(i + chunkSize, totalPages);
       const pageIndices = Array.from({ length: endPage - i }, (_, j) => i + j);
       
-      const copiedPages = await pdfDoc.copyPages(pdfDoc, pageIndices);
+      const copiedPages = await chunkDoc.copyPages(pdfDoc, pageIndices);
       copiedPages.forEach(page => chunkDoc.addPage(page));
       
       const chunkBytes = await chunkDoc.save();
