@@ -219,62 +219,164 @@ IMPORTANT:
 }
 
 function mergeResults(results) {
-  if (results.length === 0) return null;
-  if (results.length === 1) return results[0];
-  
-  const merged = {
-    accountNumber: results[0].accountNumber || 'N/A',
-    totalIncome: 0,
-    totalTransactions: 0,
-    months: []
-  };
-  
-  const monthMap = new Map();
-  
-  results.forEach(result => {
-    merged.totalIncome += result.totalIncome || 0;
-    merged.totalTransactions += result.totalTransactions || 0;
+    if (results.length === 0) return null;
+    if (results.length === 1) return results[0];
     
-    if (result.months && Array.isArray(result.months)) {
-      result.months.forEach(month => {
-        const monthKey = month.month;
-        
-        if (monthMap.has(monthKey)) {
-          const existing = monthMap.get(monthKey);
+    const merged = {
+      accountNumber: results[0].accountNumber || 'N/A',
+      totalIncome: 0,
+      totalTransactions: 0,
+      months: []
+    };
+    
+    const monthMap = new Map();
+    
+    // Helper function to normalize descriptions for comparison
+    const normalizeDescription = (desc) => {
+      return desc
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[^\w\s]/g, ''); // Remove special characters
+    };
+    
+    // Helper function to normalize category names
+    const normalizeCategory = (type) => {
+      const normalized = type.toLowerCase().trim();
+      
+      // Map variations to standard names
+      if (normalized.includes('transfer in') || normalized === 'transfer in') {
+        return 'Transfer In';
+      }
+      if (normalized.includes('zelle')) {
+        return 'Zelle Transfer';
+      }
+      if (normalized.includes('ach')) {
+        return 'ACH Deposit';
+      }
+      if (normalized.includes('wire')) {
+        return 'Wire Transfer';
+      }
+      if (normalized.includes('venmo')) {
+        return 'Venmo';
+      }
+      if (normalized.includes('cash app')) {
+        return 'Cash App';
+      }
+      if (normalized.includes('paypal')) {
+        return 'PayPal';
+      }
+      if (normalized.includes('bank deposit') || normalized.includes('atm')) {
+        return 'Bank Deposit';
+      }
+      if (normalized.includes('check')) {
+        return 'Check Deposit';
+      }
+      if (normalized.includes('mobile')) {
+        return 'Mobile Deposit';
+      }
+      if (normalized.includes('direct deposit')) {
+        return 'Direct Deposit';
+      }
+      
+      // Return original if no match
+      return type;
+    };
+    
+    results.forEach(result => {
+      if (result.months && Array.isArray(result.months)) {
+        result.months.forEach(month => {
+          const monthKey = month.month;
           
-          existing.total += month.total || 0;
-          
-          if (month.transactions) {
-            existing.transactions.push(...month.transactions);
-          }
-          
-          if (month.categories) {
-            Object.keys(month.categories).forEach(catKey => {
-              if (existing.categories[catKey]) {
-                existing.categories[catKey].amount += month.categories[catKey].amount || 0;
-                existing.categories[catKey].count += month.categories[catKey].count || 0;
-              } else {
-                existing.categories[catKey] = { ...month.categories[catKey] };
+          if (monthMap.has(monthKey)) {
+            const existing = monthMap.get(monthKey);
+            
+            // Create a robust deduplication key using normalized data
+            const existingTxSet = new Set(
+              existing.transactions.map(tx => {
+                const normalizedDesc = normalizeDescription(tx.description || '');
+                const amount = Number(tx.amount).toFixed(2);
+                const date = tx.date;
+                return `${date}|${amount}|${normalizedDesc}`;
+              })
+            );
+            
+            // Only add transactions that don't already exist
+            if (month.transactions) {
+              month.transactions.forEach(tx => {
+                const normalizedDesc = normalizeDescription(tx.description || '');
+                const amount = Number(tx.amount).toFixed(2);
+                const date = tx.date;
+                const txKey = `${date}|${amount}|${normalizedDesc}`;
+                
+                if (!existingTxSet.has(txKey)) {
+                  // Normalize the category before adding
+                  const normalizedTx = {
+                    ...tx,
+                    type: normalizeCategory(tx.type),
+                    amount: Number(tx.amount)
+                  };
+                  existing.transactions.push(normalizedTx);
+                  existingTxSet.add(txKey);
+                }
+              });
+            }
+            
+            // Recalculate everything from deduplicated transactions
+            existing.total = existing.transactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
+            
+            // Recalculate categories
+            existing.categories = {};
+            existing.transactions.forEach(tx => {
+              const catType = tx.type;
+              if (!existing.categories[catType]) {
+                existing.categories[catType] = { amount: 0, count: 0 };
               }
+              existing.categories[catType].amount += Number(tx.amount);
+              existing.categories[catType].count += 1;
+            });
+            
+          } else {
+            // First time seeing this month - normalize categories
+            const normalizedTransactions = (month.transactions || []).map(tx => ({
+              ...tx,
+              type: normalizeCategory(tx.type),
+              amount: Number(tx.amount)
+            }));
+            
+            // Recalculate categories with normalized types
+            const normalizedCategories = {};
+            normalizedTransactions.forEach(tx => {
+              if (!normalizedCategories[tx.type]) {
+                normalizedCategories[tx.type] = { amount: 0, count: 0 };
+              }
+              normalizedCategories[tx.type].amount += Number(tx.amount);
+              normalizedCategories[tx.type].count += 1;
+            });
+            
+            monthMap.set(monthKey, {
+              month: month.month,
+              total: normalizedTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0),
+              categories: normalizedCategories,
+              transactions: normalizedTransactions
             });
           }
-        } else {
-          monthMap.set(monthKey, {
-            month: month.month,
-            total: month.total || 0,
-            categories: JSON.parse(JSON.stringify(month.categories || {})),
-            transactions: [...(month.transactions || [])]
-          });
-        }
-      });
-    }
-  });
-  
-  merged.months = Array.from(monthMap.values()).sort((a, b) => {
-    const dateA = new Date(a.month);
-    const dateB = new Date(b.month);
-    return dateB - dateA;
-  });
-  
-  return merged;
-}
+        });
+      }
+    });
+    
+    // Convert map back to array and sort by date
+    merged.months = Array.from(monthMap.values()).sort((a, b) => {
+      const dateA = new Date(a.month);
+      const dateB = new Date(b.month);
+      return dateB - dateA;
+    });
+    
+    // Recalculate overall totals
+    merged.months.forEach(month => {
+      merged.totalIncome += month.total;
+      merged.totalTransactions += month.transactions.length;
+    });
+    
+    return merged;
+  }
