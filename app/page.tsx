@@ -10,6 +10,19 @@ interface FileResult {
   chunksProcessed?: number;
 }
 
+interface ConsolidatedMonth {
+  month: string;
+  total: number;
+  categories: { [key: string]: { amount: number; count: number } };
+  transactions: Array<{
+    date: string;
+    type: string;
+    source: string;
+    amount: number;
+    accountNumber: string;
+  }>;
+}
+
 export default function Home() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -148,6 +161,7 @@ export default function Home() {
     return typeMap[type] || 'type-deposit';
   };
 
+  // Calculate combined totals
   const combinedTotals = results.reduce(
     (acc, result) => {
       if (result.data) {
@@ -158,6 +172,73 @@ export default function Home() {
     },
     { totalIncome: 0, totalTransactions: 0 }
   );
+
+  // Consolidate months across all files
+  const consolidateMonths = (): ConsolidatedMonth[] => {
+    const monthMap = new Map<string, ConsolidatedMonth>();
+
+    results.forEach(result => {
+      if (result.data && result.data.months) {
+        const accountNumber = result.data.accountNumber || 'N/A';
+        
+        result.data.months.forEach((month: any) => {
+          const monthKey = month.month;
+          
+          if (!monthMap.has(monthKey)) {
+            monthMap.set(monthKey, {
+              month: monthKey,
+              total: 0,
+              categories: {},
+              transactions: []
+            });
+          }
+          
+          const consolidated = monthMap.get(monthKey)!;
+          
+          // Add transactions with account number
+          if (month.transactions) {
+            month.transactions.forEach((tx: any) => {
+              consolidated.transactions.push({
+                ...tx,
+                accountNumber: accountNumber
+              });
+            });
+          }
+        });
+      }
+    });
+
+    // Recalculate totals and categories for each consolidated month
+    monthMap.forEach(consolidated => {
+      consolidated.total = 0;
+      consolidated.categories = {};
+      
+      consolidated.transactions.forEach(tx => {
+        consolidated.total += tx.amount;
+        
+        if (!consolidated.categories[tx.type]) {
+          consolidated.categories[tx.type] = { amount: 0, count: 0 };
+        }
+        consolidated.categories[tx.type].amount += tx.amount;
+        consolidated.categories[tx.type].count += 1;
+      });
+
+      // Sort transactions by date
+      consolidated.transactions.sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+    });
+
+    // Convert to array and sort by date (newest first)
+    return Array.from(monthMap.values()).sort((a, b) => {
+      const dateA = new Date(a.month);
+      const dateB = new Date(b.month);
+      return dateB.getTime() - dateA.getTime();
+    });
+  };
+
+  const consolidatedMonths = results.length > 0 ? consolidateMonths() : [];
+  const totalConsolidatedMonths = consolidatedMonths.length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-purple-900 p-5">
@@ -285,21 +366,12 @@ export default function Home() {
                 <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
                   <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Average Monthly Income</h3>
                   <div className="text-4xl font-bold mb-2">
-                    ${(() => {
-                      const totalMonths = results.reduce((acc, result) => {
-                        return acc + (result.data?.months?.length || 0);
-                      }, 0);
-                      const avgIncome = totalMonths > 0 ? combinedTotals.totalIncome / totalMonths : 0;
-                      return avgIncome.toLocaleString('en-US', { minimumFractionDigits: 2 });
-                    })()}
+                    ${totalConsolidatedMonths > 0 
+                      ? (combinedTotals.totalIncome / totalConsolidatedMonths).toLocaleString('en-US', { minimumFractionDigits: 2 })
+                      : '0.00'}
                   </div>
                   <div className="text-sm opacity-80">
-                    {(() => {
-                      const totalMonths = results.reduce((acc, result) => {
-                        return acc + (result.data?.months?.length || 0);
-                      }, 0);
-                      return `Across ${totalMonths} month${totalMonths !== 1 ? 's' : ''}`;
-                    })()}
+                    Across {totalConsolidatedMonths} month{totalConsolidatedMonths !== 1 ? 's' : ''}
                   </div>
                 </div>
 
@@ -318,110 +390,71 @@ export default function Home() {
                 </div>
               </div>
 
-              {results.map((result, resultIdx) => (
-                <div key={resultIdx} className="mb-10">
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-6 rounded-t-2xl">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <span className="text-3xl">📄</span>
-                        <div>
-                          <h3 className="text-2xl font-bold">{result.fileName}</h3>
-                          {result.chunksProcessed && result.chunksProcessed > 1 && (
-                            <p className="text-xs opacity-90 mt-1">
-                              📄 Processed in {result.chunksProcessed} chunks
-                            </p>
-                          )}
-                          {result.data && (
-                            <p className="text-sm opacity-90">
-                              {result.data.accountNumber && result.data.accountNumber !== 'N/A' && (
-                                <span className="font-semibold">Account: ****{result.data.accountNumber} | </span>
-                              )}
-                              Total: ${result.data.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })} | 
-                              Transactions: {result.data.totalTransactions}
-                            </p>
-                          )}
-                        </div>
+              {/* Consolidated Monthly Breakdown */}
+              <div className="mb-10">
+                <h3 className="text-2xl font-bold text-gray-800 mb-6">📅 Consolidated by Month</h3>
+                
+                {consolidatedMonths.map((month, idx) => (
+                  <div key={idx} className="bg-white rounded-xl p-6 mb-4 shadow-lg border-2 border-gray-200">
+                    {/* Month Header */}
+                    <div className="flex justify-between items-center mb-4 pb-3 border-b-2">
+                      <h4 className="text-xl font-bold text-gray-800">📅 {month.month}</h4>
+                      <div className="bg-gradient-to-r from-purple-600 to-purple-800 text-white px-4 py-2 rounded-lg text-lg font-bold">
+                        ${month.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </div>
-                      {result.error && (
-                        <span className="bg-red-500 text-white px-4 py-2 rounded-full text-sm font-semibold">
-                          Error
-                        </span>
-                      )}
-                      {result.data && (
-                        <span className="bg-green-500 text-white px-4 py-2 rounded-full text-sm font-semibold">
-                          Success
-                        </span>
-                      )}
                     </div>
-                  </div>
 
-                  {result.error && (
-                    <div className="bg-red-50 border-l-4 border-red-500 p-6 rounded-b-2xl">
-                      <p className="text-red-700 font-semibold">Error: {result.error}</p>
-                    </div>
-                  )}
-
-                  {result.data && (
-                    <div className="bg-gray-50 p-6 rounded-b-2xl border-2 border-gray-200">
-                      {result.data.months?.map((month: any, idx: number) => (
-                        <div key={idx} className="bg-white rounded-xl p-6 mb-4 shadow-sm">
-                          <div className="flex justify-between items-center mb-4 pb-3 border-b-2">
-                            <h4 className="text-xl font-bold text-gray-800">📅 {month.month}</h4>
-                            <div className="bg-gradient-to-r from-purple-600 to-purple-800 text-white px-4 py-2 rounded-lg text-lg font-bold">
-                              ${month.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </div>
+                    {/* Category Breakdown */}
+                    <h5 className="text-xs uppercase tracking-wider text-gray-600 mb-3">Category Breakdown</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                      {Object.entries(month.categories).map(([catName, catData]: [string, any]) => (
+                        <div key={catName} className="bg-gray-50 p-4 rounded-lg border-l-4 border-purple-600">
+                          <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">{catName}</div>
+                          <div className="text-xl font-bold text-gray-800">
+                            ${catData.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                           </div>
-
-                          <h5 className="text-xs uppercase tracking-wider text-gray-600 mb-3">Category Breakdown</h5>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-                            {Object.entries(month.categories).map(([catName, catData]: [string, any]) => (
-                              <div key={catName} className="bg-gray-50 p-4 rounded-lg border-l-4 border-purple-600">
-                                <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">{catName}</div>
-                                <div className="text-xl font-bold text-gray-800">
-                                  ${catData.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                </div>
-                                <div className="text-xs text-gray-400 mt-1">
-                                  {catData.count} transaction{catData.count > 1 ? 's' : ''}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          <h5 className="text-xs uppercase tracking-wider text-gray-600 mb-3">Transaction Details</h5>
-                          <div className="bg-white rounded-lg overflow-hidden shadow-sm border">
-                            <table className="w-full">
-                              <thead className="bg-gradient-to-r from-purple-600 to-purple-800 text-white">
-                                <tr>
-                                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Date</th>
-                                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Type</th>
-                                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Source</th>
-                                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Amount</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {month.transactions.map((tx: any, txIdx: number) => (
-                                  <tr key={txIdx} className="border-b hover:bg-gray-50">
-                                    <td className="px-4 py-3 text-gray-800 text-sm">{tx.date}</td>
-                                    <td className="px-4 py-3">
-                                      <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${getTransactionTypeClass(tx.type)}`}>
-                                        {tx.type}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-gray-800 text-sm">{tx.source}</td>
-                                    <td className="px-4 py-3 text-green-600 font-bold text-sm">
-                                      ${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {catData.count} transaction{catData.count > 1 ? 's' : ''}
                           </div>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {/* Transaction Table with Account Number */}
+                    <h5 className="text-xs uppercase tracking-wider text-gray-600 mb-3">Transaction Details</h5>
+                    <div className="bg-white rounded-lg overflow-hidden shadow-sm border">
+                      <table className="w-full">
+                        <thead className="bg-gradient-to-r from-purple-600 to-purple-800 text-white">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Date</th>
+                            <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Type</th>
+                            <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Source</th>
+                            <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Account</th>
+                            <th className="px-4 py-3 text-left text-xs uppercase tracking-wider">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {month.transactions.map((tx: any, txIdx: number) => (
+                            <tr key={txIdx} className="border-b hover:bg-gray-50">
+                              <td className="px-4 py-3 text-gray-800 text-sm">{tx.date}</td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${getTransactionTypeClass(tx.type)}`}>
+                                  {tx.type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-gray-800 text-sm">{tx.source}</td>
+                              <td className="px-4 py-3 text-gray-600 text-sm font-mono">****{tx.accountNumber}</td>
+                              <td className="px-4 py-3 text-green-600 font-bold text-sm">
+                                ${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
