@@ -7,7 +7,7 @@ interface FileResult {
   fileName: string;
   data: any;
   error?: string;
-  chunksProcessed?: number;  // ADD THIS LINE
+  chunksProcessed?: number;
 }
 
 export default function Home() {
@@ -21,10 +21,9 @@ export default function Home() {
     if (!files || files.length === 0) return;
     
     const fileArray = Array.from(files);
-    console.log(`Selected ${fileArray.length} files:`, fileArray.map(f => f.name)); // Debug log
+    console.log(`Selected ${fileArray.length} files:`, fileArray.map(f => f.name));
     
     setSelectedFiles(prev => {
-      // Prevent duplicates by checking file names
       const existingNames = prev.map(f => f.name);
       const newFiles = fileArray.filter(f => !existingNames.includes(f.name));
       return [...prev, ...newFiles];
@@ -37,7 +36,7 @@ export default function Home() {
     e.stopPropagation();
     
     const files = e.dataTransfer.files;
-    console.log(`Dropped ${files.length} files`); // Debug log
+    console.log(`Dropped ${files.length} files`);
     
     if (files && files.length > 0) {
       handleFileSelect(files);
@@ -64,7 +63,6 @@ export default function Home() {
         setProcessingStatus(`Processing file ${i + 1} of ${selectedFiles.length}: ${file.name}`);
 
         try {
-          // Convert file to base64
           const reader = new FileReader();
           const fileData = await new Promise<string>((resolve, reject) => {
             reader.onload = () => resolve(reader.result as string);
@@ -72,7 +70,6 @@ export default function Home() {
             reader.readAsDataURL(file);
           });
 
-          // Call API
           const response = await fetch('/api/analyze-chunked', {
             method: 'POST',
             headers: {
@@ -84,12 +81,18 @@ export default function Home() {
             }),
           });
 
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.details || `HTTP error! status: ${response.status}`);
+          }
+
           const data = await response.json();
 
           if (data.success) {
             fileResults.push({
               fileName: file.name,
               data: data.data,
+              chunksProcessed: data.chunksProcessed || 1
             });
           } else {
             fileResults.push({
@@ -104,6 +107,12 @@ export default function Home() {
             data: null,
             error: (err as Error).message || 'An error occurred',
           });
+        }
+
+        // Wait 60 seconds between files to avoid rate limits (except after last file)
+        if (i < selectedFiles.length - 1) {
+          setProcessingStatus(`Waiting 60 seconds before processing next file to avoid rate limits...`);
+          await new Promise(resolve => setTimeout(resolve, 60000));
         }
       }
 
@@ -145,7 +154,6 @@ export default function Home() {
     return typeMap[type] || 'type-deposit';
   };
 
-  // Calculate combined totals
   const combinedTotals = results.reduce(
     (acc, result) => {
       if (result.data) {
@@ -160,16 +168,13 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-purple-900 p-5">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="text-center text-white mb-8">
           <h1 className="text-5xl font-bold mb-3 drop-shadow-lg">💼 Income Verification Tool</h1>
           <p className="text-xl opacity-90">Upload multiple bank statements and get instant income analysis</p>
         </div>
 
-        {/* Main Card */}
         <div className="bg-white rounded-3xl shadow-2xl p-10">
           
-          {/* Upload Section */}
           {!isProcessing && results.length === 0 && (
             <div>
               <div
@@ -202,12 +207,11 @@ export default function Home() {
                   onChange={(e) => {
                     console.log('File input changed:', e.target.files?.length, 'files');
                     handleFileSelect(e.target.files);
-                    e.target.value = ''; // Reset input so same file can be selected again
+                    e.target.value = '';
                   }}
                 />
               </div>
 
-              {/* Selected Files List */}
               {selectedFiles.length > 0 && (
                 <div className="mt-6 bg-gray-50 rounded-xl p-6">
                   <h4 className="font-semibold text-gray-800 mb-4">Selected Files:</h4>
@@ -252,22 +256,19 @@ export default function Home() {
             </div>
           )}
 
-          {/* Loading State */}
           {isProcessing && (
-  <div className="text-center py-16">
-    <div className="inline-block w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-6"></div>
-    <p className="text-xl text-gray-700 font-semibold">{processingStatus}</p>
-    <p className="text-gray-500 mt-3">Extracting transactions and categorizing income sources</p>
-    <p className="text-sm text-purple-600 mt-2">
-      💡 Large files (12+ pages) are automatically split into chunks. Each chunk takes ~90 seconds to process.
-    </p>
-  </div>
-)}
+            <div className="text-center py-16">
+              <div className="inline-block w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-6"></div>
+              <p className="text-xl text-gray-700 font-semibold">{processingStatus}</p>
+              <p className="text-gray-500 mt-3">Extracting transactions and categorizing income sources</p>
+              <p className="text-sm text-purple-600 mt-2">
+                💡 Large files (12+ pages) are automatically split into chunks. Each chunk takes ~90 seconds to process.
+              </p>
+            </div>
+          )}
 
-          {/* Results Section */}
           {results.length > 0 && (
             <div>
-              {/* Results Header */}
               <div className="flex justify-between items-center mb-8 pb-6 border-b-2">
                 <h2 className="text-4xl font-bold text-gray-800">📊 Analysis Results</h2>
                 <button
@@ -278,77 +279,75 @@ export default function Home() {
                 </button>
               </div>
 
-              {/* Combined Summary Cards */}
-<div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Income (All Files)</h3>
-    <div className="text-4xl font-bold mb-2">
-      ${combinedTotals.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-    </div>
-    <div className="text-sm opacity-80">{results.length} statement{results.length > 1 ? 's' : ''} analyzed</div>
-  </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Income (All Files)</h3>
+                  <div className="text-4xl font-bold mb-2">
+                    ${combinedTotals.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-sm opacity-80">{results.length} statement{results.length > 1 ? 's' : ''} analyzed</div>
+                </div>
 
-  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Average Monthly Income</h3>
-    <div className="text-4xl font-bold mb-2">
-      ${(() => {
-        const totalMonths = results.reduce((acc, result) => {
-          return acc + (result.data?.months?.length || 0);
-        }, 0);
-        const avgIncome = totalMonths > 0 ? combinedTotals.totalIncome / totalMonths : 0;
-        return avgIncome.toLocaleString('en-US', { minimumFractionDigits: 2 });
-      })()}
-    </div>
-    <div className="text-sm opacity-80">
-      {(() => {
-        const totalMonths = results.reduce((acc, result) => {
-          return acc + (result.data?.months?.length || 0);
-        }, 0);
-        return `Across ${totalMonths} month${totalMonths !== 1 ? 's' : ''}`;
-      })()}
-    </div>
-  </div>
+                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Average Monthly Income</h3>
+                  <div className="text-4xl font-bold mb-2">
+                    ${(() => {
+                      const totalMonths = results.reduce((acc, result) => {
+                        return acc + (result.data?.months?.length || 0);
+                      }, 0);
+                      const avgIncome = totalMonths > 0 ? combinedTotals.totalIncome / totalMonths : 0;
+                      return avgIncome.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                    })()}
+                  </div>
+                  <div className="text-sm opacity-80">
+                    {(() => {
+                      const totalMonths = results.reduce((acc, result) => {
+                        return acc + (result.data?.months?.length || 0);
+                      }, 0);
+                      return `Across ${totalMonths} month${totalMonths !== 1 ? 's' : ''}`;
+                    })()}
+                  </div>
+                </div>
 
-  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Transactions</h3>
-    <div className="text-4xl font-bold mb-2">{combinedTotals.totalTransactions}</div>
-    <div className="text-sm opacity-80">All income sources identified</div>
-  </div>
+                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Total Transactions</h3>
+                  <div className="text-4xl font-bold mb-2">{combinedTotals.totalTransactions}</div>
+                  <div className="text-sm opacity-80">All income sources identified</div>
+                </div>
 
-  <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
-    <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Files Processed</h3>
-    <div className="text-4xl font-bold mb-2">{results.length}</div>
-    <div className="text-sm opacity-80">
-      {results.filter(r => r.data).length} successful, {results.filter(r => r.error).length} failed
-    </div>
-  </div>
-</div>
+                <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white p-8 rounded-2xl shadow-lg">
+                  <h3 className="text-sm uppercase tracking-wider opacity-90 mb-3">Files Processed</h3>
+                  <div className="text-4xl font-bold mb-2">{results.length}</div>
+                  <div className="text-sm opacity-80">
+                    {results.filter(r => r.data).length} successful, {results.filter(r => r.error).length} failed
+                  </div>
+                </div>
+              </div>
 
-              {/* Individual File Results */}
               {results.map((result, resultIdx) => (
                 <div key={resultIdx} className="mb-10">
                   <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-6 rounded-t-2xl">
                     <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-  <span className="text-3xl">📄</span>
-  <div>
-    <h3 className="text-2xl font-bold">{result.fileName}</h3>
-    {result.chunksProcessed && result.chunksProcessed > 1 && (
-  <p className="text-xs opacity-90 mt-1">
-    📄 Processed in {result.chunksProcessed} chunks
-  </p>
-)}
-    {result.data && (
-      <p className="text-sm opacity-90">
-        {result.data.accountNumber && result.data.accountNumber !== 'N/A' && (
-          <span className="font-semibold">Account: ****{result.data.accountNumber} | </span>
-        )}
-        Total: ${result.data.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })} | 
-        Transactions: {result.data.totalTransactions}
-      </p>
-    )}
-  </div>
-</div>
+                      <div className="flex items-center gap-4">
+                        <span className="text-3xl">📄</span>
+                        <div>
+                          <h3 className="text-2xl font-bold">{result.fileName}</h3>
+                          {result.chunksProcessed && result.chunksProcessed > 1 && (
+                            <p className="text-xs opacity-90 mt-1">
+                              📄 Processed in {result.chunksProcessed} chunks
+                            </p>
+                          )}
+                          {result.data && (
+                            <p className="text-sm opacity-90">
+                              {result.data.accountNumber && result.data.accountNumber !== 'N/A' && (
+                                <span className="font-semibold">Account: ****{result.data.accountNumber} | </span>
+                              )}
+                              Total: ${result.data.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })} | 
+                              Transactions: {result.data.totalTransactions}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                       {result.error && (
                         <span className="bg-red-500 text-white px-4 py-2 rounded-full text-sm font-semibold">
                           Error
@@ -370,10 +369,8 @@ export default function Home() {
 
                   {result.data && (
                     <div className="bg-gray-50 p-6 rounded-b-2xl border-2 border-gray-200">
-                      {/* Monthly Breakdown */}
                       {result.data.months?.map((month: any, idx: number) => (
                         <div key={idx} className="bg-white rounded-xl p-6 mb-4 shadow-sm">
-                          {/* Month Header */}
                           <div className="flex justify-between items-center mb-4 pb-3 border-b-2">
                             <h4 className="text-xl font-bold text-gray-800">📅 {month.month}</h4>
                             <div className="bg-gradient-to-r from-purple-600 to-purple-800 text-white px-4 py-2 rounded-lg text-lg font-bold">
@@ -381,7 +378,6 @@ export default function Home() {
                             </div>
                           </div>
 
-                          {/* Category Breakdown */}
                           <h5 className="text-xs uppercase tracking-wider text-gray-600 mb-3">Category Breakdown</h5>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
                             {Object.entries(month.categories).map(([catName, catData]: [string, any]) => (
@@ -397,7 +393,6 @@ export default function Home() {
                             ))}
                           </div>
 
-                          {/* Transaction Table */}
                           <h5 className="text-xs uppercase tracking-wider text-gray-600 mb-3">Transaction Details</h5>
                           <div className="bg-white rounded-lg overflow-hidden shadow-sm border">
                             <table className="w-full">
