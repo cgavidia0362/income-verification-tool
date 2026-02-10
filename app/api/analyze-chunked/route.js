@@ -105,69 +105,119 @@ async function processSingleChunk(fileData, fileName) {
     mimeType = 'image/png';
   }
   
-  const prompt = `You are a financial analyst AI specialized in extracting income data from bank statements, credit card statements, and other financial documents.
+  const prompt = `You are a financial analyst AI specialized in extracting ONLY INCOMING INCOME from bank statements.
 
-CRITICAL INSTRUCTIONS:
-1. This document may contain MULTIPLE bank statements covering DIFFERENT MONTHS
-2. You MUST extract transactions from ALL MONTHS present in the document
-3. Look for month/year headers throughout the ENTIRE document
-4. Each month should be processed separately in the output
-
-FIRST, find the bank account number on the statement and extract ONLY THE LAST 4 DIGITS (or return "N/A" if not found).
-
-THEN, analyze this ENTIRE document and extract ALL income transactions (money coming INTO the account) from ALL months present.
-
-For EACH income transaction, identify:
-1. Date - The exact date of the transaction (including month and year)
-2. Type - Categorize as one of these: "ACH Deposit", "Wire Transfer", "Zelle Transfer", "Venmo", "Cash App", "PayPal", "Bank Deposit", "Check Deposit", "Mobile Deposit", "Direct Deposit", "Transfer In", or "Other"
-3. Source - The name of the person or company that sent the money (extract from description)
-4. Amount - The dollar amount (numbers only, no symbols)
-5. Description - The original transaction description from the statement
-
-Group transactions by MONTH and provide:
-- Monthly totals
-- Category breakdowns (how much from each transaction type per month)
-- Individual transaction details
-
-CRITICAL RULES:
-- ONLY include INCOMING money (deposits, credits, transfers IN)
-- EXCLUDE outgoing payments, withdrawals, debits, fees, purchases
-- If you see "CR" or "CREDIT" or positive amounts in a deposit column, those are income
-- Extract the source name from descriptions
-- Process EVERY page of the document
-- If there are multiple months, create separate month objects for each
-
-Return your response as a valid JSON object with this EXACT structure:
-{
-  "accountNumber": "1514",
-  "totalIncome": 0.00,
-  "totalTransactions": 0,
-  "months": [
-    {
-      "month": "November 2025",
-      "total": 0.00,
-      "categories": {
-        "ACH Deposit": { "amount": 0.00, "count": 0 },
-        "Zelle Transfer": { "amount": 0.00, "count": 0 }
-      },
-      "transactions": [
-        {
-          "date": "2025-11-15",
-          "type": "ACH Deposit",
-          "source": "Company Name",
-          "amount": 1000.00,
-          "description": "Original description from statement"
-        }
-      ]
-    }
-  ]
-}
-
-IMPORTANT: 
-- Return ONLY the JSON object, no other text before or after
-- Include ALL months found in the document
-- Make sure totalIncome and totalTransactions reflect the sum across ALL months`;
-
+  CRITICAL: YOU MUST ONLY EXTRACT MONEY COMING INTO THE ACCOUNT (DEPOSITS/CREDITS)
+  
+  ===== WHAT TO INCLUDE (INCOME) =====
+  ✅ ACH Deposits from employers (HYCITE, PPD HYCITE, payroll companies)
+  ✅ Wire Transfers RECEIVED (incoming wires)
+  ✅ Zelle/Venmo/Cash App/PayPal RECEIVED (FROM someone, not TO someone)
+  ✅ Direct Deposits
+  ✅ Check Deposits
+  ✅ Mobile Deposits  
+  ✅ Bank Deposits / ATM Deposits
+  ✅ Transfers IN (money coming into this account)
+  ✅ Any transaction with: "DEPOSIT", "CR", "CREDIT", positive balance increase
+  
+  ===== WHAT TO EXCLUDE (NOT INCOME) =====
+  ❌ Payments TO someone (ZELLE TO, VENMO TO, PAYMENT TO)
+  ❌ Withdrawals / Debits / Money going OUT
+  ❌ Bills paid (utilities, rent, car payment like HONDA PMT, insurance)
+  ❌ ATM Withdrawals
+  ❌ Purchase transactions
+  ❌ Fees (monthly fees, overdraft fees, service charges)
+  ❌ Transfers OUT to other accounts
+  ❌ Any transaction with: "PMT", "PAYMENT", "WITHDRAWAL", "FEE", "CHARGE", "DEBIT", "TO [person name]"
+  
+  ===== SPECIAL CATEGORY RULES =====
+  - HYCITE, PPD HYCITE = "ACH Deposit" (this is employer payroll - NEVER categorize as "Other")
+  - Any employer name = "ACH Deposit"
+  - Zelle FROM [name] = "Zelle Transfer" (income)
+  - Zelle TO [name] = EXCLUDE COMPLETELY (outgoing payment)
+  - Transfer IN, TRANSFER (without "TO") = "Transfer In"
+  - ATM Deposit = "Bank Deposit"
+  - Mobile Check = "Mobile Deposit"
+  - Anything with "PMT" = EXCLUDE COMPLETELY (payments going out)
+  
+  ===== CRITICAL INSTRUCTIONS =====
+  1. This document may contain MULTIPLE bank statements covering DIFFERENT MONTHS
+  2. You MUST extract transactions from ALL MONTHS present in the document
+  3. Look for month/year headers throughout the ENTIRE document
+  4. Each month should be processed separately in the output
+  
+  FIRST: Find the bank account number and extract ONLY THE LAST 4 DIGITS (or return "N/A" if not found).
+  
+  THEN: Analyze this ENTIRE document and extract ALL INCOME transactions from ALL months present.
+  
+  For EACH INCOME transaction, ask yourself:
+  - Is this money COMING IN (deposit/credit)? ✅ INCLUDE
+  - Is this money GOING OUT (payment/debit)? ❌ EXCLUDE
+  
+  Look for keywords:
+  - INCOMING: "FROM", "DEPOSIT", "CR", "CREDIT", "RECEIVED"
+  - OUTGOING: "TO", "PMT", "PAYMENT", "WITHDRAWAL", "FEE", negative amounts
+  
+  For EACH income transaction, identify:
+  1. Date - The exact date (including month and year)
+  2. Type - One of: "ACH Deposit", "Wire Transfer", "Zelle Transfer", "Venmo", "Cash App", "PayPal", "Bank Deposit", "Check Deposit", "Mobile Deposit", "Direct Deposit", "Transfer In"
+  3. Source - The person or company that sent the money
+  4. Amount - The dollar amount (numbers only)
+  5. Description - The original transaction description
+  
+  Group transactions by MONTH and provide:
+  - Monthly totals
+  - Category breakdowns
+  - Individual transaction details
+  
+  Return ONLY valid JSON with this structure:
+  {
+    "accountNumber": "1514",
+    "totalIncome": 0.00,
+    "totalTransactions": 0,
+    "months": [
+      {
+        "month": "January 2026",
+        "total": 0.00,
+        "categories": {
+          "ACH Deposit": { "amount": 0.00, "count": 0 },
+          "Zelle Transfer": { "amount": 0.00, "count": 0 }
+        },
+        "transactions": [
+          {
+            "date": "2026-01-15",
+            "type": "ACH Deposit",
+            "source": "HYCITE",
+            "amount": 1000.00,
+            "description": "ACH DEPOSIT PPD HYCITE"
+          }
+        ]
+      }
+    ]
+  }
+  
+  ===== EXAMPLES =====
+  
+  INCLUDE ✅:
+  - "ACH DEPOSIT HYCITE" → type: "ACH Deposit", source: "HYCITE"
+  - "PPD HYCITE $1,226" → type: "ACH Deposit", source: "HYCITE"
+  - "ZELLE FROM NICOLE CARMONA $50" → type: "Zelle Transfer", source: "NICOLE CARMONA"
+  - "DEPOSIT ATM $200" → type: "Bank Deposit"
+  - "TRANSFER IN" → type: "Transfer In"
+  
+  EXCLUDE ❌ (DO NOT INCLUDE THESE):
+  - "ZELLE TO SEBASTIAN MORA $507" → Payment TO someone (outgoing)
+  - "HONDA PMT $507" → Car payment (outgoing)
+  - "PAYMENT TO XYZ" → Payment going out
+  - "ATM WITHDRAWAL $100" → Withdrawal (outgoing)
+  - "MONTHLY FEE $15" → Bank fee (outgoing)
+  
+  IMPORTANT: 
+  - Return ONLY the JSON object, no other text
+  - Include ALL months found in the document
+  - Make sure totalIncome equals sum of all transaction amounts
+  - NEVER include transactions with "PMT", "PAYMENT TO", "ZELLE TO", or other outgoing indicators`;
+  
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const response = await fetch(apiUrl, {
