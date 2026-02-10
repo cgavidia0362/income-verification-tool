@@ -108,12 +108,6 @@ export default function Home() {
             error: (err as Error).message || 'An error occurred',
           });
         }
-
-        // Wait 60 seconds between files to avoid rate limits (except after last file)
-        if (i < selectedFiles.length - 1) {
-          setProcessingStatus(`Waiting 60 seconds before processing next file to avoid rate limits...`);
-          await new Promise(resolve => setTimeout(resolve, 60000));
-        }
       }
 
       setResults(fileResults);
