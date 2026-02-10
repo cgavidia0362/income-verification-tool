@@ -7,6 +7,7 @@ interface FileResult {
   fileName: string;
   data: any;
   error?: string;
+  chunksProcessed?: number;  // ADD THIS LINE
 }
 
 export default function Home() {
@@ -72,7 +73,7 @@ export default function Home() {
           });
 
           // Call API
-          const response = await fetch('/api/analyze', {
+          const response = await fetch('/api/analyze-chunked', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -253,12 +254,15 @@ export default function Home() {
 
           {/* Loading State */}
           {isProcessing && (
-            <div className="text-center py-16">
-              <div className="inline-block w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-6"></div>
-              <p className="text-xl text-gray-700 font-semibold">{processingStatus}</p>
-              <p className="text-gray-500 mt-3">Extracting transactions and categorizing income sources</p>
-            </div>
-          )}
+  <div className="text-center py-16">
+    <div className="inline-block w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-6"></div>
+    <p className="text-xl text-gray-700 font-semibold">{processingStatus}</p>
+    <p className="text-gray-500 mt-3">Extracting transactions and categorizing income sources</p>
+    <p className="text-sm text-purple-600 mt-2">
+      💡 Large files (12+ pages) are automatically split into chunks. Each chunk takes ~90 seconds to process.
+    </p>
+  </div>
+)}
 
           {/* Results Section */}
           {results.length > 0 && (
@@ -329,6 +333,11 @@ export default function Home() {
   <span className="text-3xl">📄</span>
   <div>
     <h3 className="text-2xl font-bold">{result.fileName}</h3>
+    {result.chunksProcessed && result.chunksProcessed > 1 && (
+  <p className="text-xs opacity-90 mt-1">
+    📄 Processed in {result.chunksProcessed} chunks
+  </p>
+)}
     {result.data && (
       <p className="text-sm opacity-90">
         {result.data.accountNumber && result.data.accountNumber !== 'N/A' && (
