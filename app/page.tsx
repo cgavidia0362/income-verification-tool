@@ -121,6 +121,12 @@ export default function Home() {
             error: (err as Error).message || 'An error occurred',
           });
         }
+
+        // Add small delay between files to avoid burst/concurrent limits
+        if (i < selectedFiles.length - 1) {
+          setProcessingStatus(`Waiting 3 seconds before processing next file...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
       }
 
       setResults(fileResults);
