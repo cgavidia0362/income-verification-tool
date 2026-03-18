@@ -22,7 +22,7 @@ export async function POST(request) {
     
     if (totalPages <= 12) {
       console.log('Small file detected - processing without chunking');
-      return await processSingleChunk(fileData, fileName, false);
+      return await processSingleChunk(fileData, fileName, false, 1, 1);
     }
     
     console.log('Large file detected - splitting into chunks');
@@ -53,7 +53,9 @@ export async function POST(request) {
         const chunkResult = await processSingleChunk(
           `data:application/pdf;base64,${chunks[i]}`,
           `${fileName}_chunk_${i + 1}`,
-          true
+          true,
+          i + 1,
+          chunks.length
         );
         
         if (chunkResult.ok) {
@@ -96,7 +98,7 @@ export async function POST(request) {
   }
 }
 
-async function processSingleChunk(fileData, fileName, isLargeFile = false) {
+async function processSingleChunk(fileData, fileName, isLargeFile = false, chunkNumber = 1, totalChunks = 1) {
   const base64Data = fileData.split(',')[1] || fileData;
   
   let mimeType = 'application/pdf';
@@ -106,7 +108,9 @@ async function processSingleChunk(fileData, fileName, isLargeFile = false) {
     mimeType = 'image/png';
   }
   
-  const prompt = isLargeFile ? getLongPrompt() : getShortPrompt();
+  const prompt = isLargeFile
+    ? getLongPrompt(chunkNumber, totalChunks)
+    : getShortPrompt();
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
@@ -158,94 +162,90 @@ async function processSingleChunk(fileData, fileName, isLargeFile = false) {
   });
 }
 
+// ─── SHORT PROMPT (files 12 pages or fewer) ───────────────────────────────────
 function getShortPrompt() {
-  return `Extract income transactions from this bank statement.
+  return `You are a financial analyst extracting ONLY income deposits from a bank statement.
 
-ONLY include money COMING IN (deposits, credits):
-✅ ACH Deposits (HYCITE, PPD = ACH Deposit, not "Other")
-✅ Zelle FROM someone (income)
-✅ Wire transfers received
-✅ Bank deposits, check deposits
-✅ Transfers IN
+YOUR SINGLE RULE: Only include money COMING IN to the account. When in doubt, EXCLUDE it.
 
-EXCLUDE money GOING OUT:
-❌ Payments TO someone (ZELLE TO, HONDA PMT)
-❌ Bills, fees, withdrawals
-❌ Any transaction with "PMT", "PAYMENT", "TO [name]"
+════════════════════════════════════════
+⚠️  SPECIAL REPORT FORMAT HANDLING (TURBOPASS / BRAVO / PLAID)
+════════════════════════════════════════
+Some documents are pre-formatted verification reports (TurboPass BRAVO, Plaid, etc.)
+that contain TWO sections showing the same transactions:
 
-Extract account number (last 4 digits) and return JSON:
+SECTION 1 — "Deposits" (or "Credits"): Already pre-filtered to show ONLY money
+  coming IN. If you see this section, USE IT AS YOUR PRIMARY SOURCE.
+
+SECTION 2 — "Transaction History" (full ledger with Debit/Credit columns):
+  Shows ALL transactions. Use only to confirm dates/amounts from Section 1.
+  Do NOT use it to exclude income you already found in Section 1.
+
+CRITICAL: If a person received money AND sent money on the same day (even to
+the same person), those are TWO SEPARATE events. The incoming deposit is STILL
+income. Do NOT cancel out or zero out a month just because outflows match inflows.
+
+TurboPass/BRAVO category labels:
+• "P2PCredits" = Zelle/Venmo received → "Zelle Transfer"
+• "General Deposit" = ACH/payroll/gig deposit → "ACH Deposit" or "Business Deposit"
+• "ATMDeposits" = cash deposits → "Bank Deposit"
+• "Internal Transfers" = EXCLUDE
+• "Refunds" = EXCLUDE
+• "Loan Advances" = EXCLUDE
+
+════════════════════════════════════════
+✅ ALWAYS INCLUDE THESE (income/deposits)
+════════════════════════════════════════
+• ACH Deposits from employers or payroll processors
+  - Payroll processors: ADP, PAYCHEX, GUSTO, CERIDIAN, KRONOS, PAYLOCITY, HEARTLAND
+  - UNITED MAINTENAN, DANDELION PAYMEN = payroll ACH → "ACH Deposit"
+  - Keywords: PPD, CCD, PAYROLL, DIRECT DEP
+• Wire Transfers RECEIVED
+• Zelle / Venmo / Cash App / PayPal RECEIVED from someone
+  - "Zelle payment from [name]" = INCLUDE
+  - "Zelle payment to [name]" = EXCLUDE
+• Check Deposits, Mobile Deposits, ATM Deposits (BKOFAMERICA ATM DEPOSIT = INCLUDE)
+• Gig platform payouts: Lyft, DoorDash, Payfare, Uber Driver → "Business Deposit"
+  - Keywords: PMNT RCVD, Payfare/Lyft Dir DES:Deposit
+• Government benefits: SSA, SSDI, SSI, VA BENEFIT, UNEMPLOYMENT, EDD
+
+════════════════════════════════════════
+❌ ALWAYS EXCLUDE THESE (not income)
+════════════════════════════════════════
+• Any outgoing payment — PMT, PAYMENT, BILL PAY, TO [name], WITHDRWL
+• Zelle / Venmo / Cash App TO someone (outgoing)
+• PURCHASE, CHECKCARD, MOBILE PURCHASE, DEBIT
+• Bank fees, service charges, overdraft fees, NSF fees, RETURN FEE
+• Temporary Credit Adjustment (bank dispute credit, not income) — EXCLUDE
+• PURCHASE REFUND, REFUND, REVERSAL, CHARGEBACK — EXCLUDE
+• CHECKCARD entries showing a positive amount for a merchant name — EXCLUDE
+  (these are subscription reversals, not income)
+• Loan proceeds, cash advances: LOAN PROCEEDS, ADVANCE, DRAW, CREDIT LINE
+• PMNT SENT (outgoing wire/remittance like Western Union) — EXCLUDE
+
+════════════════════════════════════════
+CATEGORY RULES
+════════════════════════════════════════
+• Employer / payroll / UNITED MAINTENAN / DANDELION PAYMEN → "ACH Deposit"
+• Zelle payment from [name] → "Zelle Transfer"
+• Venmo received → "Venmo"
+• Cash App received → "Cash App"
+• PayPal received → "PayPal"
+• Wire received → "Wire Transfer"
+• SSA, SSDI, VA, EDD, unemployment → "Government Benefit"
+• ATM deposit, branch deposit, BKOFAMERICA ATM DEPOSIT → "Bank Deposit"
+• BKOFAMERICA MOBILE DEPOSIT, mobile check → "Mobile Deposit"
+• Lyft, DoorDash, Payfare, Uber Driver payout → "Business Deposit"
+• Transfer IN from external bank → "Transfer In"
+• NEVER use "Other" — if no category fits, EXCLUDE it
+
+════════════════════════════════════════
+OUTPUT
+════════════════════════════════════════
+Find the account number (last 4 digits only). Return ONLY this JSON, no other text:
+
 {
-  "accountNumber": "1514",
-  "totalIncome": 0.00,
-  "totalTransactions": 0,
-  "months": [{
-    "month": "January 2026",
-    "total": 0.00,
-    "categories": {"ACH Deposit": {"amount": 0.00, "count": 0}},
-    "transactions": [{
-      "date": "2026-01-15",
-      "type": "ACH Deposit",
-      "source": "HYCITE",
-      "amount": 1000.00,
-      "description": "ACH DEPOSIT PPD HYCITE"
-    }]
-  }]
-}`;
-}
-
-function getLongPrompt() {
-  return `You are a financial analyst AI specialized in extracting ONLY INCOMING INCOME from bank statements.
-
-CRITICAL: YOU MUST ONLY EXTRACT MONEY COMING INTO THE ACCOUNT (DEPOSITS/CREDITS)
-
-===== WHAT TO INCLUDE (INCOME) =====
-✅ ACH Deposits from employers (HYCITE, PPD HYCITE, payroll companies)
-✅ Wire Transfers RECEIVED (incoming wires)
-✅ Zelle/Venmo/Cash App/PayPal RECEIVED (FROM someone, not TO someone)
-✅ Direct Deposits
-✅ Check Deposits
-✅ Mobile Deposits  
-✅ Bank Deposits / ATM Deposits
-✅ Transfers IN (money coming into this account)
-✅ Any transaction with: "DEPOSIT", "CR", "CREDIT", positive balance increase
-
-===== WHAT TO EXCLUDE (NOT INCOME) =====
-❌ Payments TO someone (ZELLE TO, VENMO TO, PAYMENT TO)
-❌ Withdrawals / Debits / Money going OUT
-❌ Bills paid (utilities, rent, car payment like HONDA PMT, insurance)
-❌ ATM Withdrawals
-❌ Purchase transactions
-❌ Fees (monthly fees, overdraft fees, service charges)
-❌ Transfers OUT to other accounts
-❌ Any transaction with: "PMT", "PAYMENT", "WITHDRAWAL", "FEE", "CHARGE", "DEBIT", "TO [person name]"
-
-===== SPECIAL CATEGORY RULES =====
-- HYCITE, PPD HYCITE = "ACH Deposit" (this is employer payroll - NEVER categorize as "Other")
-- Any employer name = "ACH Deposit"
-- Zelle FROM [name] = "Zelle Transfer" (income)
-- Zelle TO [name] = EXCLUDE COMPLETELY (outgoing payment)
-- Transfer IN, TRANSFER (without "TO") = "Transfer In"
-- ATM Deposit = "Bank Deposit"
-- Mobile Check = "Mobile Deposit"
-- Anything with "PMT" = EXCLUDE COMPLETELY (payments going out)
-
-===== CRITICAL INSTRUCTIONS =====
-1. This document may contain MULTIPLE bank statements covering DIFFERENT MONTHS
-2. You MUST extract transactions from ALL MONTHS present in the document
-3. Look for month/year headers throughout the ENTIRE document
-4. Each month should be processed separately in the output
-
-FIRST: Find the bank account number and extract ONLY THE LAST 4 DIGITS (or return "N/A" if not found).
-
-THEN: Analyze this ENTIRE document and extract ALL INCOME transactions from ALL months present.
-
-For EACH INCOME transaction, ask yourself:
-- Is this money COMING IN (deposit/credit)? ✅ INCLUDE
-- Is this money GOING OUT (payment/debit)? ❌ EXCLUDE
-
-Return ONLY valid JSON with this structure:
-{
-  "accountNumber": "1514",
+  "accountNumber": "5475",
   "totalIncome": 0.00,
   "totalTransactions": 0,
   "months": [
@@ -253,28 +253,208 @@ Return ONLY valid JSON with this structure:
       "month": "January 2026",
       "total": 0.00,
       "categories": {
+        "ACH Deposit": { "amount": 0.00, "count": 0 }
+      },
+      "transactions": [
+        {
+          "date": "2026-01-09",
+          "type": "ACH Deposit",
+          "source": "UNITED MAINTENAN",
+          "amount": 843.19,
+          "description": "UNITED MAINTENAN DES:PAYROLL PPD"
+        }
+      ]
+    }
+  ]
+}`;
+}
+
+// ─── LONG PROMPT (large files, chunked) ───────────────────────────────────────
+function getLongPrompt(chunkNumber = 1, totalChunks = 1) {
+  const chunkContext = totalChunks > 1
+    ? `NOTE: You are processing CHUNK ${chunkNumber} of ${totalChunks} from a large document. Extract all months and transactions visible in this chunk only. The account number may appear on any page — use the first one you find.`
+    : '';
+
+  return `You are a financial analyst AI. Your job is to extract ONLY INCOMING INCOME from a bank statement.
+
+${chunkContext ? `⚠️  ${chunkContext}\n` : ''}
+MASTER RULE: When you are uncertain whether a transaction is income — EXCLUDE IT.
+
+═══════════════════════════════════════════════════════════
+⚠️  SPECIAL REPORT FORMAT HANDLING (TURBOPASS / BRAVO / PLAID)
+═══════════════════════════════════════════════════════════
+
+Some documents are pre-formatted verification reports (TurboPass BRAVO, Plaid, etc.)
+that contain TWO sections showing the same transactions:
+
+SECTION 1 — "Deposits" (or "Credits"): Already pre-filtered to show ONLY money
+  coming IN. If you see this section, it is the authoritative income list.
+  USE THIS SECTION AS YOUR PRIMARY SOURCE.
+
+SECTION 2 — "Transaction History" (or full ledger with Debit/Credit columns):
+  Shows ALL transactions including outgoing. Use this only to CONFIRM dates
+  and amounts seen in Section 1. Do NOT use it to exclude income you already
+  found in Section 1.
+
+CRITICAL: If a person received money AND sent money on the same day (even to
+the same person), those are TWO SEPARATE events. The incoming deposit is STILL
+income. Do NOT cancel out or zero out a month just because outflows match inflows.
+A person who runs money through their account (receives $1,000, sends $1,000)
+still received $1,000 in income — include the receipt, exclude the payment.
+
+TurboPass/BRAVO specific categories seen in that format:
+• "P2PCredits" = Peer-to-peer received (Zelle, Venmo, etc.) → "Zelle Transfer"
+• "General Deposit" = ACH/payroll/gig deposits → "ACH Deposit" or "Business Deposit"
+• "ATMDeposits" = ATM/branch cash deposits → "Bank Deposit"
+• "Internal Transfers" = EXCLUDE (same-bank transfers)
+• "Refunds" = EXCLUDE (not earned income)
+• "Loan Advances" = EXCLUDE (not earned income)
+
+═══════════════════════════════════════════════════════════
+✅  WHAT TO INCLUDE — Money COMING IN to the account
+═══════════════════════════════════════════════════════════
+
+1. ACH DEPOSITS (employer payroll / direct deposit)
+   ✅ Any company name paying an employee via ACH
+   ✅ Known payroll processors: ADP, PAYCHEX, GUSTO, CERIDIAN, KRONOS,
+      PAYLOCITY, HEARTLAND, BAMBOOHR, RIPPLING, TRINET, JUSTWORKS
+   ✅ Keywords that confirm income: PPD, CCD, PAYROLL, DIRECT DEP, DIRECT DEPOSIT
+   ✅ HYCITE and PPD HYCITE are ALWAYS "ACH Deposit" — never categorize as "Other"
+   ✅ UNITED MAINTENAN, DANDELION PAYMEN = employer/payroll ACH → "ACH Deposit"
+
+2. WIRE TRANSFERS RECEIVED
+   ✅ Keywords: WIRE IN, WIRE CREDIT, INCOMING WIRE, FEDWIRE CREDIT
+
+3. PEER-TO-PEER PAYMENTS RECEIVED
+   ✅ "Zelle payment from [name]" = INCLUDE (note: FROM not TO)
+   ✅ "Zelle payment to [name]" = EXCLUDE (outgoing)
+   ✅ Venmo FROM [name], Cash App FROM [name], PayPal TRANSFER FROM
+   ✅ Even small amounts ($5, $7, $10) are valid if they are FROM someone
+
+4. PHYSICAL / CHECK DEPOSITS
+   ✅ Check deposit, mobile check deposit, ATM check deposit
+   ✅ Counter deposit, teller deposit, branch deposit
+   ✅ BKOFAMERICA ATM DEPOSIT = Bank Deposit — INCLUDE
+   ✅ BKOFAMERICA MOBILE DEPOSIT = Mobile Deposit — INCLUDE
+
+5. GIG / PLATFORM INCOME
+   ✅ Lyft, Uber Driver, DoorDash, Instacart, Amazon Flex payouts
+   ✅ Payfare/Lyft Dir DES:Deposit, PayFare PMNT RCVD → "Business Deposit"
+   ✅ Doordash, Inc. PMNT RCVD → "Business Deposit"
+   ✅ Keywords: PMNT RCVD, DES:Deposit (from gig platform)
+
+6. GOVERNMENT BENEFITS
+   ✅ SSA, SSDI, SSI, VA BENEFIT, UNEMPLOYMENT, EDD, STATE UI, TAX REFUND (IRS)
+
+═══════════════════════════════════════════════════════════
+❌  WHAT TO EXCLUDE — Money GOING OUT or Not Income
+═══════════════════════════════════════════════════════════
+
+1. OUTGOING PAYMENTS (any kind)
+   ❌ "Zelle payment to [name]" — the word TO confirms outgoing
+   ❌ Keywords: PMT, PAYMENT, BILL PAY, AUTO PAY, AUTOPAY
+   ❌ WITHDRWL, WITHDRAWAL, ATM WITHDRWL
+   ❌ PURCHASE, CHECKCARD, MOBILE PURCHASE, DEBIT
+   ❌ PMNT SENT (outgoing wire/remittance like Western Union)
+
+2. BANK FEES & CHARGES
+   ❌ SERVICE CHARGE, MONTHLY FEE, OVERDRAFT FEE, NSF FEE, RETURN FEE, RETRY PYMT
+
+3. INTERNAL TRANSFERS (same bank)
+   ❌ Only exclude if clearly same-bank internal movement
+
+4. LOAN PROCEEDS & CASH ADVANCES (not earned income)
+   ❌ Keywords: LOAN PROCEEDS, PERSONAL LOAN, CASH ADVANCE, DRAW, CREDIT LINE,
+      OVERDRAFT TRANSFER, OVERDRAFT ADVANCE
+
+5. REFUNDS & REVERSALS (not earned income)
+   ❌ PURCHASE REFUND = EXCLUDE
+   ❌ REFUND, REVERSAL, CHARGEBACK, RETURN = EXCLUDE
+   ❌ "Temporary Credit Adjustment" = EXCLUDE (bank dispute credit, not income)
+   ❌ CHECKCARD entry showing a POSITIVE amount for a merchant/subscription name
+      = EXCLUDE (e.g., "CHECKCARD 1117 EQT*AMBETTER&WELL" as a credit is a
+        subscription reversal — not income)
+
+═══════════════════════════════════════════════════════════
+CATEGORY MAPPING — Use exactly these category names
+═══════════════════════════════════════════════════════════
+• UNITED MAINTENAN, DANDELION PAYMEN, employer via ACH  → "ACH Deposit"
+• Zelle payment from [name]                             → "Zelle Transfer"
+• Venmo received from someone                           → "Venmo"
+• Cash App received from someone                        → "Cash App"
+• PayPal received                                       → "PayPal"
+• Wire transfer received                                → "Wire Transfer"
+• SSA, SSDI, SSI, VA, EDD, unemployment                 → "Government Benefit"
+• ATM deposit, branch deposit, BKOFAMERICA ATM DEPOSIT  → "Bank Deposit"
+• BKOFAMERICA MOBILE DEPOSIT, mobile check              → "Mobile Deposit"
+• Lyft, DoorDash, Payfare, Uber Driver, gig payout      → "Business Deposit"
+• Transfer IN from external bank                        → "Transfer In"
+• NEVER use "Other" — if it doesn't fit a category above, EXCLUDE it
+
+═══════════════════════════════════════════════════════════
+DECISION GUIDE — For ambiguous transactions
+═══════════════════════════════════════════════════════════
+Ask yourself these questions in order:
+
+Q1: Does the description say "payment TO", "WITHDRWL", "PURCHASE", "DEBIT",
+    or "PMNT SENT"?
+    → YES: EXCLUDE (outgoing)
+
+Q2: Is this a "Temporary Credit Adjustment", "PURCHASE REFUND", or "REFUND"?
+    → YES: EXCLUDE (not income)
+
+Q3: Is this a CHECKCARD entry showing a positive/credit amount for a merchant?
+    → YES: EXCLUDE (subscription reversal, not income)
+
+Q4: Does it say "Zelle payment from [name]", "PMNT RCVD" from Lyft/DoorDash,
+    or show a clear deposit/credit FROM an external source?
+    → YES: INCLUDE
+
+Q5: Is money clearly arriving FROM an employer, person, gig platform, or
+    government into this account?
+    → YES: INCLUDE
+    → NOT SURE: EXCLUDE
+
+═══════════════════════════════════════════════════════════
+INSTRUCTIONS
+═══════════════════════════════════════════════════════════
+1. Find the account number — last 4 digits only (or "N/A")
+2. If a "Deposits" section exists in the document, use it as your PRIMARY source
+3. Process ALL months visible in this document — do not skip any month
+4. All amounts must be positive numbers
+5. Dates must be in YYYY-MM-DD format
+6. "source" should be the payer name (e.g., "ARIZONA BROTHERS MAINTENANCE LLC")
+7. "description" should be the raw transaction text from the statement
+
+Return ONLY valid JSON — no explanations, no markdown fences, no other text:
+
+{
+  "accountNumber": "5475",
+  "totalIncome": 0.00,
+  "totalTransactions": 0,
+  "months": [
+    {
+      "month": "February 2026",
+      "total": 0.00,
+      "categories": {
         "ACH Deposit": { "amount": 0.00, "count": 0 },
         "Zelle Transfer": { "amount": 0.00, "count": 0 }
       },
       "transactions": [
         {
-          "date": "2026-01-15",
+          "date": "2026-02-20",
           "type": "ACH Deposit",
-          "source": "HYCITE",
-          "amount": 1000.00,
-          "description": "ACH DEPOSIT PPD HYCITE"
+          "source": "UNITED MAINTENAN",
+          "amount": 624.52,
+          "description": "UNITED MAINTENAN DES:PAYROLL PPD"
         }
       ]
     }
   ]
+}`;
 }
 
-IMPORTANT: 
-- Return ONLY the JSON object, no other text
-- Include ALL months found in the document
-- NEVER include transactions with "PMT", "PAYMENT TO", "ZELLE TO", or other outgoing indicators`;
-}
-
+// ─── MERGE LOGIC ──────────────────────────────────────────────────────────────
 function mergeResults(results) {
   if (results.length === 0) return null;
   if (results.length === 1) return results[0];
@@ -299,39 +479,19 @@ function mergeResults(results) {
   const normalizeCategory = (type) => {
     const normalized = type.toLowerCase().trim();
     
-    if (normalized.includes('transfer in') || normalized === 'transfer in') {
-      return 'Transfer In';
-    }
-    if (normalized.includes('zelle')) {
-      return 'Zelle Transfer';
-    }
-    if (normalized.includes('ach')) {
-      return 'ACH Deposit';
-    }
-    if (normalized.includes('wire')) {
-      return 'Wire Transfer';
-    }
-    if (normalized.includes('venmo')) {
-      return 'Venmo';
-    }
-    if (normalized.includes('cash app')) {
-      return 'Cash App';
-    }
-    if (normalized.includes('paypal')) {
-      return 'PayPal';
-    }
-    if (normalized.includes('bank deposit') || normalized.includes('atm')) {
-      return 'Bank Deposit';
-    }
-    if (normalized.includes('check')) {
-      return 'Check Deposit';
-    }
-    if (normalized.includes('mobile')) {
-      return 'Mobile Deposit';
-    }
-    if (normalized.includes('direct deposit')) {
-      return 'Direct Deposit';
-    }
+    if (normalized.includes('transfer in') || normalized === 'transfer in') return 'Transfer In';
+    if (normalized.includes('zelle'))          return 'Zelle Transfer';
+    if (normalized.includes('ach'))            return 'ACH Deposit';
+    if (normalized.includes('wire'))           return 'Wire Transfer';
+    if (normalized.includes('venmo'))          return 'Venmo';
+    if (normalized.includes('cash app'))       return 'Cash App';
+    if (normalized.includes('paypal'))         return 'PayPal';
+    if (normalized.includes('government'))     return 'Government Benefit';
+    if (normalized.includes('business'))       return 'Business Deposit';
+    if (normalized.includes('bank deposit') || normalized.includes('atm')) return 'Bank Deposit';
+    if (normalized.includes('mobile'))         return 'Mobile Deposit';
+    if (normalized.includes('check'))          return 'Check Deposit';
+    if (normalized.includes('direct deposit')) return 'Direct Deposit';
     
     return type;
   };
